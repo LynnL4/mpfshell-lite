@@ -263,7 +263,6 @@ class MpFileExplorer(Pyboard):
    
         if dst is None:
             dst = '/'+src.split('/')[len(src.split('/'))-1]
-            print(dst)
         try:
 
             self.exec_("f = open('%s', 'wb')" % self._fqn(dst))

@@ -218,9 +218,15 @@ class MpFileShell(cmd.Cmd):
 
 
     def do_v(self, args):
+        """view(v)
+        view all serial.
+        """
         return self.do_view(args)
 
     def do_q(self, args):
+        """quit(q)
+        Exit this shell.
+        """
         return self.do_quit(args)
 
     def do_quit(self, args):
@@ -234,6 +240,13 @@ class MpFileShell(cmd.Cmd):
     do_EOF = do_quit
 
     def do_o(self, args):
+        """open(o) <TARGET>
+        Open connection to device with given target. TARGET might be:
+
+        - a serial port, e.g.       ttyUSB0, ser:/dev/ttyUSB0
+        - a telnet host, e.g        tn:192.168.1.1 or tn:192.168.1.1,login,passwd
+        - a websocket host, e.g.    ws:192.168.1.1 or ws:192.168.1.1,passwd
+        """
         return self.do_open(args)
 
     def do_open(self, args):
@@ -602,6 +615,7 @@ class MpFileShell(cmd.Cmd):
             except Exception as e:
                 print(e)
 
+
     def do_mrm(self, args):
         """mrm <SELECTION REGEX>
         Delete all remote files that match the given regular expression.
@@ -631,6 +645,9 @@ class MpFileShell(cmd.Cmd):
         return [i for i in files if i.startswith(args[0])]
 
     def do_c(self, args):
+        """cat(c) <REMOTE FILE>
+        Print the contents of a remote file.
+        """
         self.do_cat(args)
 
     def do_cat(self, args):
@@ -659,6 +676,9 @@ class MpFileShell(cmd.Cmd):
     complete_cat = complete_get
 
     def do_rf(self, args):
+        """runfile(rf) <LOCAL FILE>
+        download and running local file in board.
+        """
         self.do_runfile(args)
 
     def do_runfile(self, args):
@@ -689,6 +709,9 @@ class MpFileShell(cmd.Cmd):
                 print(e)
 
     def do_ef(self, args):
+        """execfile(ef) <REMOTE FILE>
+        Execute a Python filename on remote.
+        """
         self.do_execfile(args)
 
     def do_execfile(self, args):
@@ -715,6 +738,9 @@ class MpFileShell(cmd.Cmd):
                     self.fe.enter_raw_repl()
 
     def do_lef(self, args):
+        """execfile(ef) <LOCAL FILE>
+        Execute a Python filename on local.
+        """
         self.do_lexecfile(args)
 
     def do_lexecfile(self, args):
@@ -743,6 +769,9 @@ class MpFileShell(cmd.Cmd):
                 print(e)
 
     def do_e(self, args):
+        """exec(e) <Python CODE>
+        Execute a Python CODE on remote.
+        """
         self.do_exec(args)
 
     def do_exec(self, args):
@@ -773,6 +802,9 @@ class MpFileShell(cmd.Cmd):
                 print(e)
 
     def do_r(self, args):
+        """repl(r)
+        Enter Micropython REPL.
+        """
         self.do_repl(args)
 
     def do_repl(self, args):
