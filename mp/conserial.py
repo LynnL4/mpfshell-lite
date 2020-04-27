@@ -22,25 +22,19 @@
 # THE SOFTWARE.
 ##
 
-import time
 import logging
-import sys
+import time
 
-from serial import Serial
 from mp.conbase import ConBase, ConError
+from serial import Serial
 
 
 class ConSerial(ConBase):
-
     def __init__(self, port, baudrate=115200, reset=False):
         ConBase.__init__(self)
 
         try:
-            self.serial = Serial(baudrate=baudrate, interCharTimeout=1)
-
-            self.serial.port = port
-            self.serial.dtr = self.serial.rts = False
-            self.serial.open()
+            self.serial = Serial(port, baudrate=baudrate, interCharTimeout=1)
 
             if reset:
                 logging.info("Hard resetting device at port: %s" % port)
@@ -79,4 +73,3 @@ class ConSerial(ConBase):
 
     def survives_soft_reset(self):
         return False
-

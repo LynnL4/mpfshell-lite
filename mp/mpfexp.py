@@ -23,22 +23,21 @@
 ##
 
 
+import ast
+import binascii
+import getpass
+import logging
 import os
 import posixpath  # force posix-style slashes
 import re
 import sre_constants
-import binascii
-import getpass
-import logging
 import subprocess
-import ast
 
-from mp.pyboard import Pyboard
-from mp.pyboard import PyboardError
+from mp.conbase import ConError
 from mp.conserial import ConSerial
 from mp.contelnet import ConTelnet
 from mp.conwebsock import ConWebsock
-from mp.conbase import ConError
+from mp.pyboard import Pyboard, PyboardError
 from mp.retry import retry
 
 
@@ -54,7 +53,7 @@ def _was_file_not_existing(exception):
     """
 
     stre = str(exception)
-    return any(err in stre for err in ('ENOENT', 'ENODEV', 'EINVAL', 'OSError:'))
+    return any(err in stre for err in ("ENOENT", "ENODEV", "EINVAL", "OSError:"))
 
 
 class RemoteIOError(IOError):
@@ -63,7 +62,7 @@ class RemoteIOError(IOError):
 
 class MpFileExplorer(Pyboard):
 
-    BIN_CHUNK_SIZE = 64 * 100
+    BIN_CHUNK_SIZE = 64
     MAX_TRIES = 3
 
     def __init__(self, constr, reset=False):
@@ -149,11 +148,10 @@ class MpFileExplorer(Pyboard):
         return con
 
     def _fqn(self, name):
-        # print(name, posixpath.join(self.dir, name).replace("\\","/"))
-        return posixpath.join(self.dir, name).replace("\\","/")
+        return posixpath.join(self.dir, name)
 
     def __set_sysname(self):
-        self.sysname = self.eval("os.uname()[0]").decode('utf-8')
+        self.sysname = self.eval("uos.uname()[0]").decode("utf-8")
 
     def close(self):
 
@@ -168,12 +166,17 @@ class MpFileExplorer(Pyboard):
     def setup(self):
 
         self.enter_raw_repl()
-        self.exec_("import os, sys, ubinascii")
+        self.exec_(
+            "try:\n    import uos\nexcept ImportError:\n    import os as uos\nimport sys"
+        )
+        self.exec_(
+            "try:\n    import ubinascii\nexcept ImportError:\n    import binascii as ubinascii"
+        )
 
         # New version mounts files on /flash so lets set dir based on where we are in
         # filesystem.
         # Using the "path.join" to make sure we get "/" if "os.getcwd" returns "".
-        self.dir = posixpath.join("/", self.eval("os.getcwd()").decode('utf8'))
+        self.dir = posixpath.join("/", self.eval("uos.getcwd()").decode("utf8"))
 
         self.__set_sysname()
 
@@ -183,75 +186,54 @@ class MpFileExplorer(Pyboard):
         files = []
 
         try:
-
-            res = self.eval("os.listdir('%s')" % self.dir)
-            tmp = ast.literal_eval(res.decode('utf-8'))
-
-            if add_dirs:
-                for f in tmp:
-                    try:
-
-                        # if it is a dir, it could be listed with "os.listdir"
-                        self.eval("os.listdir('%s/%s')" % (self.dir.rstrip('/'), f))
-                        if add_details:
-                            files.append((f, 'D'))
-                        else:
-                            files.append(f)
-
-                    except PyboardError as e:
-
-                        if _was_file_not_existing(e):
-                            # this was not a dir
-                            if self.sysname == "WiPy" and self.dir == "/":
-                                # for the WiPy, assume that all entries in the root of th FS
-                                # are mount-points, and thus treat them as directories
-                                if add_details:
-                                    files.append((f, 'D'))
-                                else:
-                                    files.append(f)
-                        else:
-                            raise e
-
-            if add_files and not (self.sysname == "WiPy" and self.dir == "/"):
-                for f in tmp:
-                    try:
-
-                        # if it is a file, "os.listdir" must fail
-                        self.eval("os.listdir('%s/%s')" % (self.dir.rstrip('/'), f))
-
-                    except PyboardError as e:
-
-                        if _was_file_not_existing(e):
-                            if add_details:
-                                files.append((f, 'F'))
-                            else:
-                                files.append(f)
-                        else:
-                            raise e
-
-        except Exception  as e:
+            res = self.eval("list(uos.ilistdir('%s'))" % self.dir)
+        except Exception as e:
             if _was_file_not_existing(e):
                 raise RemoteIOError("No such directory: %s" % self.dir)
             else:
                 raise PyboardError(e)
 
-        return files
+        entries = ast.literal_eval(res.decode("utf-8"))
+
+        if self.sysname == "WiPy" and self.dir == "/":
+            # Assume everything in the root is a mountpoint and return them as dirs.
+            if add_details:
+                return [(entry[0], "D") for entry in entries]
+            else:
+                return [entry[0] for entry in entries]
+
+        for entry in entries:
+            fname, ftype, inode = entry[:3]
+            fchar = "D" if ftype == 0x4000 else "F"
+            if not ((fchar == "D" and add_dirs) or (fchar == "F" and add_files)):
+                continue
+
+            files.append((fname, fchar) if add_details else fname)
+
+        if add_details:
+            # Sort directories first, then filenames.
+            return sorted(files, key=lambda x: (x[1], x[0]))
+        else:
+            return sorted(files)
 
     @retry(PyboardError, tries=MAX_TRIES, delay=1, backoff=2, logger=logging.root)
     def rm(self, target):
 
         try:
             # 1st try to delete it as a file
-            self.eval("os.remove('%s')" % (self._fqn(target)))
-        except PyboardError as e:
+            self.eval("uos.remove('%s')" % (self._fqn(target)))
+        except PyboardError:
             try:
                 # 2nd see if it is empty dir
-                self.eval("os.rmdir('%s')" % (self._fqn(target)))
+                self.eval("uos.rmdir('%s')" % (self._fqn(target)))
             except PyboardError as e:
                 # 3rd report error if nor successful
                 if _was_file_not_existing(e):
                     if self.sysname == "WiPy":
-                        raise RemoteIOError("No such file or directory or directory not empty: %s" % target)
+                        raise RemoteIOError(
+                            "No such file or directory or directory not empty: %s"
+                            % target
+                        )
                     else:
                         raise RemoteIOError("No such file or directory: %s" % target)
                 elif "EACCES" in str(e):
@@ -273,7 +255,7 @@ class MpFileExplorer(Pyboard):
 
     @retry(PyboardError, tries=MAX_TRIES, delay=1, backoff=2, logger=logging.root)
     def put(self, src, dst=None):
-
+        
         f = open(src, "rb")
         data = f.read()
         f.close()
@@ -285,16 +267,14 @@ class MpFileExplorer(Pyboard):
 
             self.exec_("f = open('%s', 'wb')" % self._fqn(dst))
 
-            file_size = len(data)
             while True:
-                c = binascii.hexlify(data[:self.BIN_CHUNK_SIZE])
+                c = binascii.hexlify(data[: self.BIN_CHUNK_SIZE])
                 if not len(c):
                     break
 
-                self.exec_("f.write(ubinascii.unhexlify('%s'))" % c.decode('utf-8'))
-                data = data[self.BIN_CHUNK_SIZE:]
+                self.exec_("f.write(ubinascii.unhexlify('%s'))" % c.decode("utf-8"))
+                data = data[self.BIN_CHUNK_SIZE :]
 
-                print("\ttransfer %d of %d" % (file_size - len(data), file_size))
             self.exec_("f.close()")
 
         except PyboardError as e:
@@ -313,7 +293,7 @@ class MpFileExplorer(Pyboard):
             files = os.listdir(src_dir)
 
             for f in files:
-                if posixpath.isfile(f) and find.match(f):
+                if os.path.isfile(f) and find.match(f):
                     if verbose:
                         print(" * put %s" % f)
 
@@ -334,7 +314,7 @@ class MpFileExplorer(Pyboard):
         f = open(dst, "wb")
 
         try:
-
+            
             self.exec_("f = open('%s', 'rb')" % self._fqn(src))
             ret = self.exec_(
                 "while True:\r\n"
@@ -343,6 +323,8 @@ class MpFileExplorer(Pyboard):
                 "    break\r\n"
                 "  sys.stdout.write(c)\r\n" % self.BIN_CHUNK_SIZE
             )
+
+            self.exec_("f.close()")
 
         except PyboardError as e:
             if _was_file_not_existing(e):
@@ -384,6 +366,8 @@ class MpFileExplorer(Pyboard):
                 "  sys.stdout.write(c)\r\n" % self.BIN_CHUNK_SIZE
             )
 
+            self.exec_("f.close()")
+
         except PyboardError as e:
             if _was_file_not_existing(e):
                 raise RemoteIOError("Failed to read file: %s" % src)
@@ -413,14 +397,14 @@ class MpFileExplorer(Pyboard):
             data = lines.encode("utf-8")
 
             self.exec_("f = open('%s', 'wb')" % self._fqn(dst))
-            
+
             while True:
-                c = binascii.hexlify(data[:self.BIN_CHUNK_SIZE])
+                c = binascii.hexlify(data[: self.BIN_CHUNK_SIZE])
                 if not len(c):
                     break
 
-                self.exec_("f.write(ubinascii.unhexlify('%s'))" % c.decode('utf-8'))
-                data = data[self.BIN_CHUNK_SIZE:]
+                self.exec_("f.write(ubinascii.unhexlify('%s'))" % c.decode("utf-8"))
+                data = data[self.BIN_CHUNK_SIZE :]
 
             self.exec_("f.close()")
 
@@ -438,14 +422,14 @@ class MpFileExplorer(Pyboard):
         if target.startswith("/"):
             tmp_dir = target
         elif target == "..":
-            tmp_dir, _ = posixpath.split(self.dir)
+            tmp_dir, _ = os.path.split(self.dir)
         else:
             tmp_dir = self._fqn(target)
 
         # see if the new dir exists
         try:
 
-            self.eval("os.listdir('%s')" % tmp_dir)
+            self.eval("uos.listdir('%s')" % tmp_dir)
             self.dir = tmp_dir
 
         except PyboardError as e:
@@ -462,7 +446,7 @@ class MpFileExplorer(Pyboard):
 
         try:
 
-            self.eval("os.mkdir('%s')" % self._fqn(target))
+            self.eval("uos.mkdir('%s')" % self._fqn(target))
 
         except PyboardError as e:
             if _was_file_not_existing(e):
@@ -477,14 +461,13 @@ class MpFileExplorer(Pyboard):
         if dst is None:
             return_code = subprocess.call("mpy-cross %s" % (src), shell=True)
         else:
-            return_code = subprocess.call("mpy-cross -o %s %s" % (src, dst), shell=True)
+            return_code = subprocess.call("mpy-cross -o %s %s" % (dst, src), shell=True)
 
         if return_code != 0:
             raise IOError("Filed to compile: %s" % src)
 
 
 class MpFileExplorerCaching(MpFileExplorer):
-
     def __init__(self, constr, reset=False):
         MpFileExplorer.__init__(self, constr, reset)
 
@@ -507,33 +490,18 @@ class MpFileExplorerCaching(MpFileExplorer):
 
         hit = self.__cache_hit(self.dir)
 
-        if hit is not None:
+        if hit is None:
+            hit = MpFileExplorer.ls(self, True, True, True)
+            self.__cache(self.dir, hit)
 
-            files = []
-
-            if add_dirs:
-                for f in hit:
-                    if f[1] == 'D':
-                        if add_details:
-                            files.append(f)
-                        else:
-                            files.append(f[0])
-
-            if add_files:
-                for f in hit:
-                    if f[1] == 'F':
-                        if add_details:
-                            files.append(f)
-                        else:
-                            files.append(f[0])
-
-            return files
-
-        files = MpFileExplorer.ls(self, add_files, add_dirs, add_details)
-
-        if add_files and add_dirs and add_details:
-            self.__cache(self.dir, files)
-
+        files = [
+            f
+            for f in hit
+            if ((add_files and f[1] == "F") or (add_dirs and f[1] == "D"))
+        ]
+        files.sort(key=lambda x: (x[1], x[0]))
+        if not add_details:
+            files = [f[0] for f in files]
         return files
 
     def put(self, src, dst=None):
@@ -543,49 +511,49 @@ class MpFileExplorerCaching(MpFileExplorer):
         if dst is None:
             dst = src
 
-        path = posixpath.split(self._fqn(dst))
+        path = os.path.split(self._fqn(dst))
         newitm = path[-1]
         parent = path[:-1][0]
 
         hit = self.__cache_hit(parent)
 
         if hit is not None:
-            if not (dst, 'F') in hit:
-                self.__cache(parent, hit + [(newitm, 'F')])
+            if not (dst, "F") in hit:
+                self.__cache(parent, hit + [(newitm, "F")])
 
     def puts(self, dst, lines):
 
         MpFileExplorer.puts(self, dst, lines)
 
-        path = posixpath.split(self._fqn(dst))
+        path = os.path.split(self._fqn(dst))
         newitm = path[-1]
         parent = path[:-1][0]
 
         hit = self.__cache_hit(parent)
 
         if hit is not None:
-            if not (dst, 'F') in hit:
-                self.__cache(parent, hit + [(newitm, 'F')])
+            if not (dst, "F") in hit:
+                self.__cache(parent, hit + [(newitm, "F")])
 
     def md(self, dir):
 
         MpFileExplorer.md(self, dir)
 
-        path = posixpath.split(self._fqn(dir))
+        path = os.path.split(self._fqn(dir))
         newitm = path[-1]
         parent = path[:-1][0]
 
         hit = self.__cache_hit(parent)
 
         if hit is not None:
-            if not (dir, 'D') in hit:
-                self.__cache(parent, hit + [(newitm, 'D')])
+            if not (dir, "D") in hit:
+                self.__cache(parent, hit + [(newitm, "D")])
 
     def rm(self, target):
 
         MpFileExplorer.rm(self, target)
 
-        path = posixpath.split(self._fqn(target))
+        path = os.path.split(self._fqn(target))
         rmitm = path[-1]
         parent = path[:-1][0]
 
