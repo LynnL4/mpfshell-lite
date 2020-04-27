@@ -33,6 +33,7 @@ import serial
 import logging
 import platform
 import time
+import colorama
 
 from mp import version
 from mp.mpfexp import MpFileExplorer
@@ -46,60 +47,84 @@ from mp.tokenizer import Tokenizer
 class MpFileShell(cmd.Cmd):
 
     def __init__(self, color=False, caching=False, reset=False, help=False):
-        cmd.Cmd.__init__(self)
+        if color:
+            colorama.init()
+            cmd.Cmd.__init__(self, stdout=colorama.initialise.wrapped_stdout)
+        else:
+            cmd.Cmd.__init__(self)
+
+        if platform.system() == "Windows":
+            self.use_rawinput = False
 
         self.color = color
         self.caching = caching
         self.reset = reset
-        self.open_args = None
+
         self.fe = None
         self.repl = None
         self.tokenizer = Tokenizer()
 
-        if platform.system() == 'Windows':
-            self.use_rawinput = False
-
-        if platform.system() == 'Darwin':
-            self.reset = True
-
         self.__intro()
         self.__set_prompt_path()
 
-        if help is False:
-            self.do_help(None)
-            print("can input help ls or other command if you don't know how to use it.")
+    def __intro(self):
+    
+        if self.color:
+            self.intro = (
+                "\n"
+                + colorama.Fore.GREEN
+                + "** Micropython File Shell v%s, sw@kaltpost.de ** " % version.FULL
+                + colorama.Fore.RESET
+                + "\n"
+            )
+        else:
+            self.intro = (
+                "\n** Micropython File Shell v%s, sw@kaltpost.de **\n" % version.FULL
+            )
 
-            plist = self.all_serial()
-            if len(plist) <= 0:
-                print("serial not found!")
-            else:
-                for serial in plist:
-                    print("serial name :", serial[1], " : ", serial[0].split('/')[-1])
-                print("input ' open", plist[len(plist) - 1][0].split('/')[-1], "' and enter connect your board.")
-            
+        self.intro += "-- Running on Python %d.%d using PySerial %s --\n" % (
+            sys.version_info[0],
+            sys.version_info[1],
+            serial.VERSION,
+        )       
+
+
+    def __set_prompt_path(self):
+        
+        if self.fe is not None:
+            pwd = self.fe.pwd()
+        else:
+            pwd = "/"
+
+        if self.color:
+            self.prompt = (
+                colorama.Fore.BLUE
+                + "mpfs ["
+                + colorama.Fore.YELLOW
+                + pwd
+                + colorama.Fore.BLUE
+                + "]> "
+                + colorama.Fore.RESET
+            )
+        else:
+            self.prompt = "mpfs [" + pwd + "]> "
 
     def __del__(self):
         self.__disconnect()
 
     def __intro(self):
 
-        self.intro = '\n** Micropython File Shell v%s, sw@kaltpost.de & junhuanchen@qq.com **\n' % version.FULL
+        self.intro = '\n** Micropython File Shell v%s, sw@kaltpost.de & junhuanchen@qq.com & lht856@foxmail.com **\n' % version.FULL
 
         self.intro += '-- Running on Python %d.%d using PySerial %s --\n' \
                       % (sys.version_info[0], sys.version_info[1], serial.VERSION)
 
-    def __set_prompt_path(self):
-
-        if self.fe is not None:
-            pwd = self.fe.pwd()
-        else:
-            pwd = "/"
-
-        self.prompt = "mpfs [" + pwd + "]> "
-
     def __error(self, msg):
 
-        print('\n' + msg + '\n')
+        if self.color:
+            print("\n" + colorama.Fore.RED + msg + colorama.Fore.RESET + "\n")
+        else:
+            print("\n" + msg + "\n")
 
     def __connect(self, port, reconnect=False):
 
@@ -270,17 +295,29 @@ class MpFileShell(cmd.Cmd):
                 print("\nRemote files in '%s':\n" % self.fe.pwd())
 
                 for elem, type in files:
-                    if type == 'F':
-                        print("       %s" % elem)
+                    if type == "F":
+                        if self.color:
+                            print(
+                                colorama.Fore.CYAN
+                                + ("       %s" % elem)
+                                + colorama.Fore.RESET
+                            )
+                        else:
+                            print("       %s" % elem)
                     else:
-                        print(" <dir> %s" % elem)
+                        if self.color:
+                            print(
+                                colorama.Fore.MAGENTA
+                                + (" <dir> %s" % elem)
+                                + colorama.Fore.RESET
+                            )
+                        else:
+                            print(" <dir> %s" % elem)
 
                 print("")
 
             except IOError as e:
                 self.__error(str(e))
-            except Exception as e:
-                print(e)
 
     def do_pwd(self, args):
         """pwd
@@ -352,10 +389,18 @@ class MpFileShell(cmd.Cmd):
 
         for f in files:
             if os.path.isdir(f):
-                print(" <dir> %s" % f)
+                if self.color:
+                    print(
+                        colorama.Fore.MAGENTA + (" <dir> %s" % f) + colorama.Fore.RESET
+                    )
+                else:
+                    print(" <dir> %s" % f)
         for f in files:
             if os.path.isfile(f):
-                print("       %s" % f)
+                if self.color:
+                    print(colorama.Fore.CYAN + ("       %s" % f) + colorama.Fore.RESET)
+                else:
+                    print("       %s" % f)
         print("")
 
     def do_lcd(self, args):
@@ -634,10 +679,10 @@ class MpFileShell(cmd.Cmd):
                 return
 
             lfile_name = s_args[0]
-
+            rfile_name = '/'+lfile_name.split('/')[len(lfile_name.split('/'))-1]
             try:
-                self.fe.put(lfile_name, lfile_name)
-                self.do_ef(args)
+                self.fe.put(lfile_name)
+                self.do_ef(rfile_name)
             except IOError as e:
                 self.__error(str(e))
             except Exception as e:
@@ -686,9 +731,9 @@ class MpFileShell(cmd.Cmd):
                 return
 
             lfile_name = s_args[0]
-
+        
             try:
-                self.fe.put(lfile_name, lfile_name)
+                self.fe.put(lfile_name)
 
                 self.do_repl("exec(open('{0}').read())\r\n".format(args))
 
