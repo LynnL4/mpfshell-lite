@@ -161,7 +161,7 @@ class MpFileShell(cmd.Cmd):
         return True
 
     def __parse_file_names(self, args):
-
+        args = args.replace('\\', '/')
         tokens, rest = self.tokenizer.tokenize(args)
 
         if rest != '':
@@ -415,7 +415,7 @@ class MpFileShell(cmd.Cmd):
             if len(s_args) > 1:
                 rfile_name = s_args[1]
             else:
-                rfile_name = lfile_name
+                rfile_name = '/'+lfile_name.split('/')[len(lfile_name.split('/'))-1]
             try:
                 if os.path.isdir(lfile_name):
                     print(" <dir> %s" % lfile_name)
