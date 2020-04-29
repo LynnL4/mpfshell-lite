@@ -725,7 +725,7 @@ class MpFileShell(cmd.Cmd):
                 # if len(ret[-1]):
                 #     self.__error(str(ret[-1].decode('utf-8')))
             except KeyboardInterrupt as e:
-                self.fe.keyboard_interrupt()
+                #self.fe.keyboard_interrupt()
                 print(e)
             except PyboardError as e:
                 print(e)

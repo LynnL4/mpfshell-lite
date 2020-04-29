@@ -58,20 +58,16 @@ class Pyboard:
 
     def enter_raw_repl(self):
 
-        time.sleep(0.5)  # allow some time for board to reset
-        self.con.write(b"\r\x03\x03")  # ctrl-C twice: interrupt any running program
-
-        # flush input (without relying on serial.flushInput())
-        n = self.con.inWaiting()
-        while n > 0:
-            self.con.read(n)
-            n = self.con.inWaiting()
+        self.con.write(b"\r\x03")  # ctrl-C: enter raw REPL
+        data = self.read_until(1, b"KeyboardInterrupt", timeout=1)
+        # if not data.endswith(b"raw REPL; CTRL-B to exit\r\n>"):
+        #     print(data)
+        #     raise PyboardError("could not enter raw repl")
+         
 
         if self.con.survives_soft_reset():
-
             self.con.write(b"\r\x01")  # ctrl-A: enter raw REPL
             data = self.read_until(1, b"raw REPL; CTRL-B to exit\r\n>")
-
             if not data.endswith(b"raw REPL; CTRL-B to exit\r\n>"):
                 print(data)
                 raise PyboardError("could not enter raw repl")
@@ -90,13 +86,12 @@ class Pyboard:
                 raise PyboardError("could not enter raw repl")
 
         else:
-
             self.con.write(b"\r\x01")  # ctrl-A: enter raw REPL
             data = self.read_until(1, b"raw REPL; CTRL-B to exit\r\n")
 
             if not data.endswith(b"raw REPL; CTRL-B to exit\r\n"):
-                print(data)
                 raise PyboardError("could not enter raw repl")
+            
 
     def exit_raw_repl(self):
         self.con.write(b"\r\x02")  # ctrl-B: enter friendly REPL
